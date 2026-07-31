@@ -9,16 +9,20 @@ const __dirname = path.dirname(__filename);
 const DIST_DIR = path.join(__dirname, 'dist');
 const PORT = process.env.PORT || 10000;
 
-// Auto-build dist if it doesn't exist yet on startup
-const indexHtmlPath = path.join(DIST_DIR, 'index.html');
-if (!fs.existsSync(indexHtmlPath)) {
-  console.log('📦 dist/index.html missing. Auto-building project with npm run build...');
-  try {
-    execSync('npm run build', { cwd: __dirname, stdio: 'inherit' });
-  } catch (err) {
-    console.error('Build failed:', err);
+function ensureBuilt() {
+  const indexHtmlPath = path.join(DIST_DIR, 'index.html');
+  if (!fs.existsSync(indexHtmlPath)) {
+    console.log('📦 dist/index.html missing. Building project with npm run build...');
+    try {
+      execSync('npm run build', { cwd: __dirname, stdio: 'inherit' });
+    } catch (err) {
+      console.error('Build failed:', err);
+    }
   }
 }
+
+// Check build on startup
+ensureBuilt();
 
 const MIME_TYPES = {
   '.html':  'text/html; charset=utf-8',
@@ -41,11 +45,9 @@ const server = http.createServer((req, res) => {
     filePath = path.join(DIST_DIR, 'index.html');
   }
 
-  // Safety fallback if dist/index.html is still missing
+  // Safety fallback if dist/index.html is missing
   if (!fs.existsSync(filePath)) {
-    res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<h1>500 - Building Application... Please refresh in 5 seconds.</h1>');
-    return;
+    ensureBuilt();
   }
 
   const fileExt = path.extname(filePath);
@@ -53,10 +55,24 @@ const server = http.createServer((req, res) => {
 
   fs.readFile(filePath, (err, content) => {
     if (err) {
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end(`Server Error: ${err.code}`);
+      const fallbackPath = path.join(DIST_DIR, 'index.html');
+      if (filePath !== fallbackPath && fs.existsSync(fallbackPath)) {
+        fs.readFile(fallbackPath, (fbErr, fbContent) => {
+          if (fbErr) {
+            res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end('<h1>500 - Server Error</h1>');
+          } else {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(fbContent);
+          }
+        });
+        return;
+      }
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<h1>500 - Application Initializing... Please refresh in a few seconds.</h1>');
       return;
     }
+
     res.writeHead(200, {
       'Content-Type': contentType,
       'Access-Control-Allow-Origin': '*',
