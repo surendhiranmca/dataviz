@@ -2,11 +2,23 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DIST_DIR = path.join(__dirname, 'dist');
 const PORT = process.env.PORT || 10000;
+
+// Auto-build dist if it doesn't exist yet on startup
+const indexHtmlPath = path.join(DIST_DIR, 'index.html');
+if (!fs.existsSync(indexHtmlPath)) {
+  console.log('📦 dist/index.html missing. Auto-building project with npm run build...');
+  try {
+    execSync('npm run build', { cwd: __dirname, stdio: 'inherit' });
+  } catch (err) {
+    console.error('Build failed:', err);
+  }
+}
 
 const MIME_TYPES = {
   '.html':  'text/html; charset=utf-8',
@@ -27,6 +39,13 @@ const server = http.createServer((req, res) => {
   const ext = path.extname(filePath);
   if (!ext || !fs.existsSync(filePath)) {
     filePath = path.join(DIST_DIR, 'index.html');
+  }
+
+  // Safety fallback if dist/index.html is still missing
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<h1>500 - Building Application... Please refresh in 5 seconds.</h1>');
+    return;
   }
 
   const fileExt = path.extname(filePath);
